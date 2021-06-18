@@ -5,6 +5,7 @@ mod render;
 use render::*;
 use std::time::Duration;
 use thiserror::Error;
+use wgpu::SwapChainError;
 use winit::{
     dpi::PhysicalSize,
     event::{Event, KeyboardInput, VirtualKeyCode, WindowEvent},
@@ -158,7 +159,7 @@ pub async fn run(rogue: RogueBuilder, mut app: impl App) -> RogueResult<()> {
         .with_title(rogue.title)
         .build(&event_loop)?;
     let mut input = WinitInputHelper::new();
-    let render = RenderState::new(&window).await?;
+    let mut render = RenderState::new(&window).await?;
 
     app.start();
 
@@ -166,12 +167,26 @@ pub async fn run(rogue: RogueBuilder, mut app: impl App) -> RogueResult<()> {
         *control_flow = ControlFlow::Poll;
 
         if input.update(&event) {
+            //
+            // Input has occurred
+            //
             if input.key_pressed(VirtualKeyCode::Escape) || input.quit() {
                 *control_flow = ControlFlow::Exit;
             } else if input.key_pressed(VirtualKeyCode::Return) && input.held_alt() {
                 // Fullscreen toggle
                 window.toggle_fullscreen();
             }
+
+            if let Some(size) = input.window_resized() {
+                render.resize(size);
+            }
+
+            match render.render() {
+                Ok(_) => {}
+                Err(SwapChainError::Lost) => render.resize(window.inner_size()),
+                Err(wgpu::SwapChainError::OutOfMemory) => *control_flow = ControlFlow::Exit,
+                Err(e) => eprintln!("{:?}", e),
+            };
         }
     });
 }

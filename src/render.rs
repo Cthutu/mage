@@ -6,9 +6,10 @@
 
 use thiserror::Error;
 use wgpu::{
-    Device, DeviceDescriptor, Features, Instance, Limits, PowerPreference, PresentMode, Queue,
-    RequestAdapterOptions, RequestDeviceError, Surface, SwapChain, SwapChainDescriptor,
-    SwapChainError, TextureUsage,
+    Color, CommandEncoderDescriptor, Device, DeviceDescriptor, Features, Instance, Limits, LoadOp,
+    Operations, PowerPreference, PresentMode, Queue, RenderPassColorAttachment,
+    RenderPassDescriptor, RequestAdapterOptions, RequestDeviceError, Surface, SwapChain,
+    SwapChainDescriptor, SwapChainError, TextureUsage,
 };
 use winit::{dpi::PhysicalSize, window::Window};
 
@@ -116,6 +117,42 @@ impl RenderState {
     }
 
     pub fn render(&mut self) -> Result<(), SwapChainError> {
-        todo!()
+        // First, we fetch the current frame from the swap chain that we will
+        // render to.  The frame will have the view that covers the whole
+        // window.  We will use this later for the render pass.
+        let frame = self.swapchain.get_current_frame()?.output;
+
+        // Now we construct an encoder that acts like a factory for commands to
+        // be sent to the device.
+        let mut encoder = self
+            .device
+            .create_command_encoder(&CommandEncoderDescriptor {
+                label: Some("Render encoder"),
+            });
+
+        {
+            // A render pass describes the attachments that will be referenced during rendering.
+            let _render_pass = encoder.begin_render_pass(&RenderPassDescriptor {
+                label: Some("Main render pass"),
+                color_attachments: &[RenderPassColorAttachment {
+                    view: &frame.view,
+                    resolve_target: None,
+                    ops: Operations {
+                        load: LoadOp::Clear(Color {
+                            r: 0.0,
+                            g: 0.0,
+                            b: 0.0,
+                            a: 1.0,
+                        }),
+                        store: true,
+                    },
+                }],
+                depth_stencil_attachment: None,
+            });
+        }
+
+        self.queue.submit(std::iter::once(encoder.finish()));
+
+        Ok(())
     }
 }
