@@ -1,13 +1,18 @@
-#![allow(dead_code, unused_imports)]
+#![allow(dead_code, unused_imports, unused_variables)]
 
+mod render;
+
+use render::*;
 use std::time::Duration;
 use thiserror::Error;
 use winit::{
     dpi::PhysicalSize,
     event::{Event, KeyboardInput, VirtualKeyCode, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
-    window::WindowBuilder,
+    monitor::{MonitorHandle, VideoMode},
+    window::{Fullscreen, WindowBuilder},
 };
+use winit_fullscreen::WindowFullScreen;
 use winit_input_helper::WinitInputHelper;
 
 pub trait App {
@@ -91,6 +96,9 @@ impl From<Colour> for u32 {
 pub enum RogueError {
     #[error(transparent)]
     OSError(#[from] winit::error::OsError),
+
+    #[error(transparent)]
+    RenderError(#[from] render::RenderError),
 }
 
 pub type RogueResult<T> = Result<T, RogueError>;
@@ -140,9 +148,9 @@ impl Default for RogueBuilder {
     }
 }
 
-pub fn run(rogue: RogueBuilder, mut app: impl App) -> RogueResult<()> {
+pub async fn run(rogue: RogueBuilder, mut app: impl App) -> RogueResult<()> {
     let event_loop = EventLoop::new();
-    let _window = WindowBuilder::new()
+    let window = WindowBuilder::new()
         .with_inner_size(PhysicalSize::new(
             rogue.inner_size.0 as u32,
             rogue.inner_size.1 as u32,
@@ -150,16 +158,19 @@ pub fn run(rogue: RogueBuilder, mut app: impl App) -> RogueResult<()> {
         .with_title(rogue.title)
         .build(&event_loop)?;
     let mut input = WinitInputHelper::new();
+    let render = RenderState::new(&window).await?;
 
     app.start();
 
-    event_loop.run(move |event, _, control_flow| {
+    event_loop.run(move |event, _target, control_flow| {
         *control_flow = ControlFlow::Poll;
 
         if input.update(&event) {
             if input.key_pressed(VirtualKeyCode::Escape) || input.quit() {
                 *control_flow = ControlFlow::Exit;
-            } else {
+            } else if input.key_pressed(VirtualKeyCode::Return) && input.held_alt() {
+                // Fullscreen toggle
+                window.toggle_fullscreen();
             }
         }
     });

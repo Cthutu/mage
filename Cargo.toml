@@ -2,13 +2,15 @@
 name = "md-rogue"
 version = "0.1.0"
 edition = "2018"
-
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dev-dependencies]
 anyhow = "1.0"
 
 [dependencies]
-winit = "0.25"
 thiserror = "1.0"
+wgpu = "0.8"
+winit = "0.25"
+winit-fullscreen = "0.1"
 winit_input_helper = "0.10"
+futures = "0.3"

@@ -4,6 +4,7 @@
 
 #![cfg_attr(windows, windows_subsystem = "windows")]
 
+use futures::executor::block_on;
 use md_rogue::*;
 
 fn main() -> RogueResult<()> {
@@ -14,7 +15,7 @@ fn main() -> RogueResult<()> {
 
     let app = App::new();
 
-    run(rogue, app)
+    block_on(run(rogue, app))
 }
 
 struct App {}
