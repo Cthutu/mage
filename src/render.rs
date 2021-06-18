@@ -6,10 +6,13 @@
 
 use thiserror::Error;
 use wgpu::{
-    Color, CommandEncoderDescriptor, Device, DeviceDescriptor, Features, Instance, Limits, LoadOp,
-    Operations, PowerPreference, PresentMode, Queue, RenderPassColorAttachment,
-    RenderPassDescriptor, RequestAdapterOptions, RequestDeviceError, Surface, SwapChain,
-    SwapChainDescriptor, SwapChainError, TextureUsage,
+    BlendState, Color, ColorTargetState, ColorWrite, CommandEncoderDescriptor, Device,
+    DeviceDescriptor, Features, FragmentState, FrontFace, Instance, Limits, LoadOp,
+    MultisampleState, Operations, PipelineLayoutDescriptor, PolygonMode, PowerPreference,
+    PresentMode, PrimitiveState, PrimitiveTopology, Queue, RenderPassColorAttachment,
+    RenderPassDescriptor, RenderPipeline, RenderPipelineDescriptor, RequestAdapterOptions,
+    RequestDeviceError, ShaderFlags, ShaderModuleDescriptor, ShaderSource, Surface, SwapChain,
+    SwapChainDescriptor, SwapChainError, TextureUsage, VertexState,
 };
 use winit::{dpi::PhysicalSize, window::Window};
 
@@ -41,6 +44,7 @@ pub struct RenderState {
     queue: Queue,
     swapchain_desc: SwapChainDescriptor,
     swapchain: SwapChain,
+    render_pipeline: RenderPipeline,
 }
 
 impl RenderState {
@@ -99,12 +103,69 @@ impl RenderState {
         // Now we create the swap chain that will target a particular surface.
         let swapchain = device.create_swap_chain(&surface, &swapchain_desc);
 
+        // Now we load the shader in that contains both the vertex and fragment
+        // shaders as a single WGSL file.
+        let shader_src = include_str!("shader.wgsl");
+        let shader = device.create_shader_module(&ShaderModuleDescriptor {
+            label: Some("ASCII engine shader"),
+            flags: ShaderFlags::all(),
+            source: ShaderSource::Wgsl(shader_src.into()),
+        });
+
+        // The render pipeline layout allows us to connect bind groups to the
+        // pipeline that we're currenly constructing.
+        let render_pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
+            label: Some("Render Pipeline Layout"),
+            bind_group_layouts: &[],
+            push_constant_ranges: &[],
+        });
+
+        // Given the layout to bind resources, the shaders, we create the
+        // pipeline which brings all of those things together.  It also includes
+        // the primitive formats (lists, strips etc), culling, front-face
+        // determination, drawing mode (wire frame or filled) and some other
+        // information related to depth stencils and multisampling.
+        let render_pipeline = device.create_render_pipeline(&RenderPipelineDescriptor {
+            label: Some("Render pipeline"),
+            layout: Some(&render_pipeline_layout),
+            vertex: VertexState {
+                module: &shader,
+                entry_point: "main",
+                buffers: &[],
+            },
+            fragment: Some(FragmentState {
+                module: &shader,
+                entry_point: "main",
+                targets: &[ColorTargetState {
+                    format: swapchain_desc.format,
+                    blend: Some(BlendState::REPLACE),
+                    write_mask: ColorWrite::ALL,
+                }],
+            }),
+            primitive: PrimitiveState {
+                topology: PrimitiveTopology::TriangleStrip,
+                strip_index_format: None,
+                front_face: FrontFace::Cw,
+                cull_mode: None,
+                polygon_mode: PolygonMode::Fill,
+                clamp_depth: false,
+                conservative: false,
+            },
+            depth_stencil: None,
+            multisample: MultisampleState {
+                count: 1,
+                mask: !0,
+                alpha_to_coverage_enabled: false,
+            },
+        });
+
         Ok(RenderState {
             surface,
             device,
             queue,
             swapchain_desc,
             swapchain,
+            render_pipeline,
         })
     }
 
@@ -132,7 +193,7 @@ impl RenderState {
 
         {
             // A render pass describes the attachments that will be referenced during rendering.
-            let _render_pass = encoder.begin_render_pass(&RenderPassDescriptor {
+            let mut render_pass = encoder.begin_render_pass(&RenderPassDescriptor {
                 label: Some("Main render pass"),
                 color_attachments: &[RenderPassColorAttachment {
                     view: &frame.view,
@@ -149,6 +210,9 @@ impl RenderState {
                 }],
                 depth_stencil_attachment: None,
             });
+
+            render_pass.set_pipeline(&self.render_pipeline);
+            render_pass.draw(0..4, 0..1);
         }
 
         self.queue.submit(std::iter::once(encoder.finish()));

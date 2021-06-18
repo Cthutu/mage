@@ -16,7 +16,7 @@ use winit::{
 use winit_fullscreen::WindowFullScreen;
 use winit_input_helper::WinitInputHelper;
 
-pub trait App {
+pub trait Game {
     fn start(&mut self);
     fn tick(&mut self, sim_input: SimInput) -> TickResult;
     fn present(&self, present_input: PresentInput);
@@ -149,7 +149,7 @@ impl Default for RogueBuilder {
     }
 }
 
-pub async fn run(rogue: RogueBuilder, mut app: impl App) -> RogueResult<()> {
+pub async fn run(rogue: RogueBuilder, mut app: impl Game) -> RogueResult<()> {
     let event_loop = EventLoop::new();
     let window = WindowBuilder::new()
         .with_inner_size(PhysicalSize::new(

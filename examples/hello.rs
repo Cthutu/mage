@@ -5,7 +5,7 @@
 #![cfg_attr(windows, windows_subsystem = "windows")]
 
 use futures::executor::block_on;
-use md_rogue::*;
+use mage::*;
 
 fn main() -> RogueResult<()> {
     let rogue = RogueBuilder::new()
@@ -13,20 +13,20 @@ fn main() -> RogueResult<()> {
         .with_title("Hello, World!")
         .build();
 
-    let app = App::new();
+    let app = HelloDemo::new();
 
     block_on(run(rogue, app))
 }
 
-struct App {}
+struct HelloDemo {}
 
-impl App {
+impl HelloDemo {
     fn new() -> Self {
         Self {}
     }
 }
 
-impl md_rogue::App for App {
+impl Game for HelloDemo {
     fn start(&mut self) {}
 
     fn tick(&mut self, _sim_input: SimInput) -> TickResult {
