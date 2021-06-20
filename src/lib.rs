@@ -10,13 +10,11 @@ use thiserror::Error;
 use wgpu::SwapChainError;
 use winit::{
     dpi::PhysicalSize,
-    event::{Event, KeyboardInput, VirtualKeyCode, WindowEvent},
+    event::{ElementState, Event, KeyboardInput, VirtualKeyCode, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
     monitor::{MonitorHandle, VideoMode},
     window::{Fullscreen, WindowBuilder},
 };
-use winit_fullscreen::WindowFullScreen;
-use winit_input_helper::WinitInputHelper;
 
 pub trait Game {
     fn start(&mut self);
@@ -34,7 +32,27 @@ pub struct KeyState {
     pub shift: bool,
     pub ctrl: bool,
     pub alt: bool,
-    pub vkey: VirtualKeyCode,
+    pub vkey: Option<VirtualKeyCode>,
+}
+
+impl KeyState {
+    fn alt_pressed(&self) -> bool {
+        self.alt && !self.ctrl && !self.shift
+    }
+    fn ctrl_pressed(&self) -> bool {
+        !self.alt && self.ctrl && !self.shift
+    }
+    fn shift_pressed(&self) -> bool {
+        !self.alt && !self.ctrl && self.shift
+    }
+    fn key_pressed(&self, key: VirtualKeyCode) -> bool {
+        if let Some(vkey) = self.vkey {
+            if key == vkey {
+                return true;
+            }
+        }
+        false
+    }
 }
 
 pub struct MouseState {
@@ -45,11 +63,11 @@ pub struct MouseState {
     pub y: i32,
 }
 
-pub struct SimInput {
+pub struct SimInput<'a> {
     pub dt: Duration,
     pub width: u32,
     pub height: u32,
-    pub key: Option<KeyState>,
+    pub key: &'a KeyState,
     pub mouse: Option<MouseState>,
 }
 
@@ -207,59 +225,131 @@ pub async fn run(rogue: RogueBuilder, mut game: Box<dyn Game>) -> RogueResult<()
         ))
         .with_title(rogue.title)
         .build(&event_loop)?;
-    let mut input = WinitInputHelper::new();
     let mut render = RenderState::new(&window, &font_data).await?;
+
+    struct KeyboardHelper {
+        alt_pressed: bool,
+        ctrl_pressed: bool,
+        shift_pressed: bool,
+    }
+
+    let mut key_state = KeyState {
+        vkey: None,
+        pressed: false,
+        alt: false,
+        ctrl: false,
+        shift: false,
+    };
 
     game.start();
 
-    // Give the game one chance to simulate and present so we have something to show on the first frame.
-    if let TickResult::Stop = simulate(game.as_mut(), &render) {
-        return Ok(());
-    }
-    present(game.as_ref(), &mut render);
-
-    event_loop.run(move |event, _target, control_flow| {
+    event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Poll;
+        key_state.pressed = false;
+        key_state.vkey = None;
 
-        if input.update(&event) {
+        match event {
             //
-            // Input has occurred
+            // Windowed Events
             //
-            if input.key_pressed(VirtualKeyCode::Escape) || input.quit() {
-                *control_flow = ControlFlow::Exit;
-            } else if input.key_pressed(VirtualKeyCode::Return) && input.held_alt() {
-                // Fullscreen toggle
-                window.toggle_fullscreen();
+            Event::WindowEvent { event, window_id } if window.id() == window_id => {
+                match event {
+                    //
+                    // Keyboard Events
+                    //
+                    WindowEvent::KeyboardInput {
+                        input:
+                            KeyboardInput {
+                                state,
+                                virtual_keycode,
+                                ..
+                            },
+                        ..
+                    } => {
+                        key_state.pressed = state == ElementState::Pressed;
+                        key_state.vkey = virtual_keycode;
+
+                        //
+                        // Check for system keys
+                        //
+                        match key_state {
+                            KeyState {
+                                pressed: true,
+                                vkey: Some(VirtualKeyCode::Escape),
+                                ..
+                            } => {
+                                //
+                                // Exit
+                                //
+                                *control_flow = ControlFlow::Exit;
+                            }
+                            KeyState {
+                                pressed: true,
+                                shift: false,
+                                ctrl: false,
+                                alt: true,
+                                vkey: Some(VirtualKeyCode::Return),
+                            } => {
+                                //
+                                // Toggle fullscreen
+                                //
+                            }
+                            _ => {}
+                        }
+                    }
+                    //
+                    // Modifier keys
+                    //
+                    WindowEvent::ModifiersChanged(mods) => {
+                        key_state.alt = mods.alt();
+                        key_state.ctrl = mods.ctrl();
+                        key_state.shift = mods.shift();
+                    }
+                    //
+                    // Resizing
+                    //
+                    WindowEvent::Resized(new_size) => render.resize(new_size),
+                    WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
+                        render.resize(*new_inner_size)
+                    }
+
+                    _ => {} // No more windowed events
+                }
+            }
+            //
+            // Idle
+            //
+            Event::MainEventsCleared => {
+                if let TickResult::Stop = simulate(game.as_mut(), &render, &key_state) {
+                    *control_flow = ControlFlow::Exit;
+                }
+                window.request_redraw();
+            }
+            //
+            // Redraw
+            //
+            Event::RedrawRequested(_) => {
+                present(game.as_ref(), &mut render);
+                match render.render() {
+                    Ok(_) => {}
+                    Err(SwapChainError::Lost) => render.resize(window.inner_size()),
+                    Err(wgpu::SwapChainError::OutOfMemory) => *control_flow = ControlFlow::Exit,
+                    Err(e) => eprintln!("{:?}", e),
+                };
             }
 
-            if let Some(size) = input.window_resized() {
-                render.resize(size);
-            }
+            _ => {} // No more events
         }
-
-        if let TickResult::Stop = simulate(game.as_mut(), &render) {
-            *control_flow = ControlFlow::Exit
-        } else {
-            present(game.as_ref(), &mut render);
-            window.request_redraw();
-        }
-
-        match render.render() {
-            Ok(_) => {}
-            Err(SwapChainError::Lost) => render.resize(window.inner_size()),
-            Err(wgpu::SwapChainError::OutOfMemory) => *control_flow = ControlFlow::Exit,
-            Err(e) => eprintln!("{:?}", e),
-        };
     });
 }
 
-fn simulate(game: &mut dyn Game, render: &RenderState) -> TickResult {
+fn simulate(game: &mut dyn Game, render: &RenderState, key_state: &KeyState) -> TickResult {
     let (width, height) = render.chars_size();
     let sim_input = SimInput {
         dt: Duration::ZERO,
         width,
         height,
-        key: None,
+        key: &key_state,
         mouse: None,
     };
 
