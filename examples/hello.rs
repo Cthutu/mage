@@ -13,9 +13,9 @@ fn main() -> RogueResult<()> {
         .with_title("Hello, World!")
         .build();
 
-    let app = HelloDemo::new();
+    let demo = Box::new(HelloDemo::new());
 
-    block_on(run(rogue, app))
+    block_on(run(rogue, demo))
 }
 
 struct HelloDemo {}
@@ -29,9 +29,20 @@ impl HelloDemo {
 impl Game for HelloDemo {
     fn start(&mut self) {}
 
-    fn tick(&mut self, _sim_input: SimInput) -> TickResult {
+    fn tick(&mut self, sim_input: SimInput) -> TickResult {
+        //println!("Size: {}, {}", sim_input.width, sim_input.height);
         TickResult::Continue
     }
 
-    fn present(&self, _present_input: PresentInput) {}
+    fn present(&self, present_input: PresentInput) {
+        for (i, e) in present_input.back_image.iter_mut().enumerate() {
+            let x = (i as u32) % present_input.width;
+            let y = (i as u32) / present_input.width;
+            *e = if ((x ^ y) & 1) == 1 {
+                0xff0000ffu32
+            } else {
+                0xffff00ffu32
+            }
+        }
+    }
 }

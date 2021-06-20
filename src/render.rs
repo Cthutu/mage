@@ -4,15 +4,25 @@
 
 #![allow(unused_variables)]
 
+use std::num::NonZeroU32;
+
+use bytemuck::cast_slice;
+use bytemuck_derive::{Pod, Zeroable};
 use thiserror::Error;
 use wgpu::{
-    BlendState, Color, ColorTargetState, ColorWrite, CommandEncoderDescriptor, Device,
-    DeviceDescriptor, Features, FragmentState, FrontFace, Instance, Limits, LoadOp,
-    MultisampleState, Operations, PipelineLayoutDescriptor, PolygonMode, PowerPreference,
+    util::{BufferInitDescriptor, DeviceExt},
+    AddressMode, BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout,
+    BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingResource, BindingType, BlendState,
+    Buffer, BufferBindingType, BufferUsage, Color, ColorTargetState, ColorWrite,
+    CommandEncoderDescriptor, Device, DeviceDescriptor, Extent3d, Features, FilterMode,
+    FragmentState, FrontFace, ImageCopyTexture, ImageDataLayout, Instance, Limits, LoadOp,
+    MultisampleState, Operations, Origin3d, PipelineLayoutDescriptor, PolygonMode, PowerPreference,
     PresentMode, PrimitiveState, PrimitiveTopology, Queue, RenderPassColorAttachment,
     RenderPassDescriptor, RenderPipeline, RenderPipelineDescriptor, RequestAdapterOptions,
-    RequestDeviceError, ShaderFlags, ShaderModuleDescriptor, ShaderSource, Surface, SwapChain,
-    SwapChainDescriptor, SwapChainError, TextureUsage, VertexState,
+    RequestDeviceError, Sampler, SamplerDescriptor, ShaderFlags, ShaderModuleDescriptor,
+    ShaderSource, ShaderStage, Surface, SwapChain, SwapChainDescriptor, SwapChainError, Texture,
+    TextureDescriptor, TextureDimension, TextureFormat, TextureSampleType, TextureUsage,
+    TextureViewDescriptor, TextureViewDimension, VertexState,
 };
 use winit::{dpi::PhysicalSize, window::Window};
 
@@ -45,6 +55,19 @@ pub struct RenderState {
     swapchain_desc: SwapChainDescriptor,
     swapchain: SwapChain,
     render_pipeline: RenderPipeline,
+
+    fg_texture: RogueTexture,
+    bg_texture: RogueTexture,
+    chars_texture: RogueTexture,
+    texture_bind_group_layout: BindGroupLayout,
+    texture_bind_group: BindGroup,
+
+    uniforms: RenderInfo,
+    uniform_buffer: Buffer,
+    uniform_bind_group: BindGroup,
+
+    font_char_size: (u32, u32),
+    size: (u32, u32),
 }
 
 impl RenderState {
@@ -103,6 +126,35 @@ impl RenderState {
         // Now we create the swap chain that will target a particular surface.
         let swapchain = device.create_swap_chain(&surface, &swapchain_desc);
 
+        // Set up the textures we will use to render the ASCII graphics.  There are four:
+        //
+        // * Foreground colours.  Each pixel represents the ink colour of a character on the screen.
+        // * Background colours.  Each pixel represents the paper colour of a character on the screen.
+        // * ASCII characters.  Each red channel of a pixel represents the ASCII code.
+        // * Font texture.  A 16x16 character grid of the font texture.
+        let font_char_size = (16, 16);
+        let size = (
+            inner_size.width / font_char_size.0,
+            inner_size.height / font_char_size.1,
+        );
+        let fg_texture = RogueTexture::new(&device, size);
+        let bg_texture = RogueTexture::new(&device, size);
+        let chars_texture = RogueTexture::new(&device, size);
+
+        // Set up the sampler for all the textures (they will have the same
+        // access patterns).  The sample describes how pixels are fetched from a
+        // texture.
+        let texture_sampler = device.create_sampler(&SamplerDescriptor {
+            address_mode_u: AddressMode::ClampToEdge,
+            address_mode_v: AddressMode::ClampToEdge,
+            address_mode_w: AddressMode::ClampToEdge,
+            min_filter: FilterMode::Nearest,
+            mag_filter: FilterMode::Nearest,
+            mipmap_filter: FilterMode::Nearest,
+            label: Some("Texture Sampler"),
+            ..Default::default()
+        });
+
         // Now we load the shader in that contains both the vertex and fragment
         // shaders as a single WGSL file.
         let shader_src = include_str!("shader.wgsl");
@@ -112,11 +164,91 @@ impl RenderState {
             source: ShaderSource::Wgsl(shader_src.into()),
         });
 
+        // Next we will create a bind group.  This describes a set of resources
+        // (namely our textures) and how they can be accessed by a shader.
+        let texture_bind_group_layout =
+            device.create_bind_group_layout(&BindGroupLayoutDescriptor {
+                label: Some("Texture Bind Group Layout"),
+                entries: &[
+                    BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: ShaderStage::FRAGMENT,
+                        ty: BindingType::Texture {
+                            multisampled: false,
+                            sample_type: TextureSampleType::Float { filterable: false },
+                            view_dimension: TextureViewDimension::D2,
+                        },
+                        count: None,
+                    },
+                    BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: ShaderStage::FRAGMENT,
+                        ty: BindingType::Texture {
+                            multisampled: false,
+                            sample_type: TextureSampleType::Float { filterable: false },
+                            view_dimension: TextureViewDimension::D2,
+                        },
+                        count: None,
+                    },
+                    BindGroupLayoutEntry {
+                        binding: 2,
+                        visibility: ShaderStage::FRAGMENT,
+                        ty: BindingType::Texture {
+                            multisampled: false,
+                            sample_type: TextureSampleType::Float { filterable: false },
+                            view_dimension: TextureViewDimension::D2,
+                        },
+                        count: None,
+                    },
+                ],
+            });
+        let texture_bind_group = Self::create_texture_bind_group(
+            &device,
+            &texture_bind_group_layout,
+            &fg_texture,
+            &bg_texture,
+            &chars_texture,
+        );
+
+        // Next is to create the uniform buffer based on RenderInfo struct.
+        let uniforms = RenderInfo {
+            font_width: font_char_size.0,
+            font_height: font_char_size.1,
+            _padding: [0; 2],
+        };
+        let uniform_buffer = device.create_buffer_init(&BufferInitDescriptor {
+            label: Some("Uniform buffer"),
+            contents: cast_slice(&[uniforms]),
+            usage: BufferUsage::UNIFORM | BufferUsage::COPY_DST,
+        });
+        let uniform_bind_group_layout =
+            device.create_bind_group_layout(&BindGroupLayoutDescriptor {
+                label: Some("Uniforms bin group layout"),
+                entries: &[BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: ShaderStage::FRAGMENT,
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }],
+            });
+        let uniform_bind_group = device.create_bind_group(&BindGroupDescriptor {
+            label: Some("Uniforms bind group"),
+            layout: &uniform_bind_group_layout,
+            entries: &[BindGroupEntry {
+                binding: 0,
+                resource: uniform_buffer.as_entire_binding(),
+            }],
+        });
+
         // The render pipeline layout allows us to connect bind groups to the
         // pipeline that we're currenly constructing.
         let render_pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
             label: Some("Render Pipeline Layout"),
-            bind_group_layouts: &[],
+            bind_group_layouts: &[&texture_bind_group_layout, &uniform_bind_group_layout],
             push_constant_ranges: &[],
         });
 
@@ -166,6 +298,58 @@ impl RenderState {
             swapchain_desc,
             swapchain,
             render_pipeline,
+
+            fg_texture,
+            bg_texture,
+            chars_texture,
+            texture_bind_group_layout,
+            texture_bind_group,
+
+            uniforms,
+            uniform_buffer,
+            uniform_bind_group,
+
+            font_char_size,
+            size,
+        })
+    }
+
+    fn create_texture_bind_group(
+        device: &Device,
+        texture_bind_group_layout: &BindGroupLayout,
+        fore_image: &RogueTexture,
+        back_image: &RogueTexture,
+        text_image: &RogueTexture,
+    ) -> BindGroup {
+        device.create_bind_group(&BindGroupDescriptor {
+            label: Some("Texture bind group"),
+            layout: &texture_bind_group_layout,
+            entries: &[
+                BindGroupEntry {
+                    binding: 0,
+                    resource: BindingResource::TextureView(
+                        &fore_image
+                            .texture
+                            .create_view(&TextureViewDescriptor::default()),
+                    ),
+                },
+                BindGroupEntry {
+                    binding: 1,
+                    resource: BindingResource::TextureView(
+                        &back_image
+                            .texture
+                            .create_view(&TextureViewDescriptor::default()),
+                    ),
+                },
+                BindGroupEntry {
+                    binding: 2,
+                    resource: BindingResource::TextureView(
+                        &text_image
+                            .texture
+                            .create_view(&TextureViewDescriptor::default()),
+                    ),
+                },
+            ],
         })
     }
 
@@ -175,9 +359,34 @@ impl RenderState {
         self.swapchain = self
             .device
             .create_swap_chain(&self.surface, &self.swapchain_desc);
+
+        let chars_size = (
+            new_size.width / self.font_char_size.0,
+            new_size.height / self.font_char_size.1,
+        );
+
+        if chars_size != self.size {
+            self.size = chars_size;
+            self.fg_texture = RogueTexture::new(&self.device, self.size);
+            self.bg_texture = RogueTexture::new(&self.device, self.size);
+            self.chars_texture = RogueTexture::new(&self.device, self.size);
+
+            self.texture_bind_group = Self::create_texture_bind_group(
+                &self.device,
+                &self.texture_bind_group_layout,
+                &self.fg_texture,
+                &self.bg_texture,
+                &self.chars_texture,
+            );
+        }
     }
 
     pub fn render(&mut self) -> Result<(), SwapChainError> {
+        // Update the textures
+        self.fg_texture.update(&self.queue);
+        self.bg_texture.update(&self.queue);
+        self.chars_texture.update(&self.queue);
+
         // First, we fetch the current frame from the swap chain that we will
         // render to.  The frame will have the view that covers the whole
         // window.  We will use this later for the render pass.
@@ -212,6 +421,8 @@ impl RenderState {
             });
 
             render_pass.set_pipeline(&self.render_pipeline);
+            render_pass.set_bind_group(0, &self.texture_bind_group, &[]);
+            render_pass.set_bind_group(1, &self.uniform_bind_group, &[]);
             render_pass.draw(0..4, 0..1);
         }
 
@@ -219,4 +430,85 @@ impl RenderState {
 
         Ok(())
     }
+
+    pub fn images(&mut self) -> (&mut Vec<u32>, &mut Vec<u32>, &mut Vec<u32>) {
+        (
+            &mut self.fg_texture.storage,
+            &mut self.bg_texture.storage,
+            &mut self.chars_texture.storage,
+        )
+    }
+
+    pub fn chars_size(&self) -> (u32, u32) {
+        self.size
+    }
+}
+
+//
+// Texture management
+//
+
+pub struct RogueTexture {
+    pub size: (u32, u32),
+    pub storage: Vec<u32>,
+    texture: Texture,
+}
+
+impl RogueTexture {
+    fn new(device: &Device, size: (u32, u32)) -> Self {
+        let vec_size = (size.0 * size.1) as usize;
+        let storage = vec![0; vec_size];
+
+        let texture_size = Extent3d {
+            width: size.0,
+            height: size.1,
+            depth_or_array_layers: 1,
+        };
+
+        let texture = device.create_texture(&TextureDescriptor {
+            label: None,
+            size: texture_size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: TextureDimension::D2,
+            format: TextureFormat::Rgba8Unorm,
+            usage: TextureUsage::SAMPLED | TextureUsage::COPY_DST,
+        });
+
+        RogueTexture {
+            size,
+            texture,
+            storage,
+        }
+    }
+
+    fn update(&mut self, queue: &Queue) {
+        let (width, height) = self.size;
+        queue.write_texture(
+            ImageCopyTexture {
+                texture: &self.texture,
+                mip_level: 0,
+                origin: Origin3d::ZERO,
+            },
+            cast_slice(&self.storage),
+            ImageDataLayout {
+                offset: 0,
+                bytes_per_row: NonZeroU32::new(4 * width),
+                rows_per_image: NonZeroU32::new(height),
+            },
+            Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+        );
+    }
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Pod, Zeroable)]
+struct RenderInfo {
+    font_width: u32,  // Width of the font characters
+    font_height: u32, // Height of the font characters
+    _padding: [u32; 2],
 }

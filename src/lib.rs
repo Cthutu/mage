@@ -45,18 +45,18 @@ pub struct MouseState {
 
 pub struct SimInput {
     pub dt: Duration,
-    pub width: usize,
-    pub height: usize,
-    pub key: KeyState,
-    pub mouse: MouseState,
+    pub width: u32,
+    pub height: u32,
+    pub key: Option<KeyState>,
+    pub mouse: Option<MouseState>,
 }
 
 pub struct PresentInput<'a> {
-    pub width: usize,
-    pub height: usize,
-    pub fore_image: &'a Vec<u32>,
-    pub back_image: &'a Vec<u32>,
-    pub text_image: &'a Vec<u32>,
+    pub width: u32,
+    pub height: u32,
+    pub fore_image: &'a mut Vec<u32>,
+    pub back_image: &'a mut Vec<u32>,
+    pub text_image: &'a mut Vec<u32>,
 }
 
 pub fn new_colour(r: u8, g: u8, b: u8) -> u32 {
@@ -149,7 +149,7 @@ impl Default for RogueBuilder {
     }
 }
 
-pub async fn run(rogue: RogueBuilder, mut app: impl Game) -> RogueResult<()> {
+pub async fn run(rogue: RogueBuilder, mut game: Box<dyn Game>) -> RogueResult<()> {
     let event_loop = EventLoop::new();
     let window = WindowBuilder::new()
         .with_inner_size(PhysicalSize::new(
@@ -161,10 +161,16 @@ pub async fn run(rogue: RogueBuilder, mut app: impl Game) -> RogueResult<()> {
     let mut input = WinitInputHelper::new();
     let mut render = RenderState::new(&window).await?;
 
-    app.start();
+    game.start();
+
+    // Give the game one chance to simulate and present so we have something to show on the first frame.
+    if let TickResult::Stop = simulate(game.as_mut(), &render) {
+        return Ok(());
+    }
+    present(game.as_ref(), &mut render);
 
     event_loop.run(move |event, _target, control_flow| {
-        *control_flow = ControlFlow::Poll;
+        *control_flow = ControlFlow::Wait;
 
         if input.update(&event) {
             //
@@ -187,6 +193,41 @@ pub async fn run(rogue: RogueBuilder, mut app: impl Game) -> RogueResult<()> {
                 Err(wgpu::SwapChainError::OutOfMemory) => *control_flow = ControlFlow::Exit,
                 Err(e) => eprintln!("{:?}", e),
             };
+        } else {
+            if let TickResult::Stop = simulate(game.as_mut(), &render) {
+                *control_flow = ControlFlow::Exit
+            } else {
+                present(game.as_ref(), &mut render);
+                window.request_redraw();
+            }
         }
     });
+}
+
+fn simulate(game: &mut dyn Game, render: &RenderState) -> TickResult {
+    let (width, height) = render.chars_size();
+    let sim_input = SimInput {
+        dt: Duration::ZERO,
+        width,
+        height,
+        key: None,
+        mouse: None,
+    };
+
+    game.tick(sim_input)
+}
+
+fn present(game: &dyn Game, render: &mut RenderState) {
+    let (width, height) = render.chars_size();
+    let (fore_image, back_image, text_image) = render.images();
+
+    let present_input = PresentInput {
+        width,
+        height,
+        fore_image,
+        back_image,
+        text_image,
+    };
+
+    game.present(present_input);
 }
