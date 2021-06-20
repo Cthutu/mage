@@ -1,18 +1,15 @@
-#![allow(dead_code, unused_imports, unused_variables)]
-
 mod render;
 
 use bytemuck::cast_slice;
-use image::{EncodableLayout, GenericImageView, ImageFormat, RgbaImage};
+use image::{EncodableLayout, GenericImageView, ImageFormat};
 use render::*;
-use std::{mem::replace, time::Duration};
+use std::{cmp::max, mem::replace, time::Duration};
 use thiserror::Error;
 use wgpu::SwapChainError;
 use winit::{
     dpi::PhysicalSize,
     event::{ElementState, Event, KeyboardInput, VirtualKeyCode, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
-    monitor::{MonitorHandle, VideoMode},
     window::{Fullscreen, WindowBuilder},
 };
 
@@ -36,16 +33,16 @@ pub struct KeyState {
 }
 
 impl KeyState {
-    fn alt_pressed(&self) -> bool {
+    pub fn alt_pressed(&self) -> bool {
         self.alt && !self.ctrl && !self.shift
     }
-    fn ctrl_pressed(&self) -> bool {
+    pub fn ctrl_pressed(&self) -> bool {
         !self.alt && self.ctrl && !self.shift
     }
-    fn shift_pressed(&self) -> bool {
+    pub fn shift_pressed(&self) -> bool {
         !self.alt && !self.ctrl && self.shift
     }
-    fn key_pressed(&self, key: VirtualKeyCode) -> bool {
+    pub fn key_pressed(&self, key: VirtualKeyCode) -> bool {
         if let Some(vkey) = self.vkey {
             if key == vkey {
                 return true;
@@ -137,10 +134,6 @@ pub struct RogueBuilder {
     font: RogueFont,
 }
 
-pub struct RogueGame {
-    builder: RogueBuilder,
-}
-
 pub struct RogueFontData {
     data: Vec<u32>,
     width: u32,
@@ -217,21 +210,19 @@ pub async fn run(rogue: RogueBuilder, mut game: Box<dyn Game>) -> RogueResult<()
         RogueFont::Custom(font) => font,
     };
 
+    let width = max(20, rogue.inner_size.0 as u32) / font_data.width * font_data.width;
+    let height = max(20, rogue.inner_size.1 as u32) / font_data.height * font_data.height;
+
     let event_loop = EventLoop::new();
     let window = WindowBuilder::new()
-        .with_inner_size(PhysicalSize::new(
-            rogue.inner_size.0 as u32,
-            rogue.inner_size.1 as u32,
-        ))
+        .with_inner_size(PhysicalSize::new(width, height))
         .with_title(rogue.title)
+        .with_min_inner_size(PhysicalSize::new(
+            20 * font_data.width,
+            20 * font_data.height,
+        ))
         .build(&event_loop)?;
     let mut render = RenderState::new(&window, &font_data).await?;
-
-    struct KeyboardHelper {
-        alt_pressed: bool,
-        ctrl_pressed: bool,
-        shift_pressed: bool,
-    }
 
     let mut key_state = KeyState {
         vkey: None,
@@ -254,6 +245,11 @@ pub async fn run(rogue: RogueBuilder, mut game: Box<dyn Game>) -> RogueResult<()
             //
             Event::WindowEvent { event, window_id } if window.id() == window_id => {
                 match event {
+                    //
+                    // Closing the window
+                    //
+                    WindowEvent::CloseRequested => *control_flow = ControlFlow::Exit,
+
                     //
                     // Keyboard Events
                     //
@@ -293,6 +289,23 @@ pub async fn run(rogue: RogueBuilder, mut game: Box<dyn Game>) -> RogueResult<()
                                 //
                                 // Toggle fullscreen
                                 //
+                                if window.fullscreen().is_some() {
+                                    window.set_fullscreen(None);
+                                } else {
+                                    window.current_monitor().map(|monitor| {
+                                        monitor.video_modes().next().map(|video_mode| {
+                                            if cfg!(any(target_os = "macos", unix)) {
+                                                window.set_fullscreen(Some(
+                                                    Fullscreen::Borderless(Some(monitor)),
+                                                ));
+                                            } else {
+                                                window.set_fullscreen(Some(Fullscreen::Exclusive(
+                                                    video_mode,
+                                                )));
+                                            }
+                                        });
+                                    });
+                                }
                             }
                             _ => {}
                         }

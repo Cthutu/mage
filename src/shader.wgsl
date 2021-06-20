@@ -1,6 +1,5 @@
 struct VertexOutput {
     [[builtin(position)]] clip_position: vec4<f32>;
-    [[location(0)]] colour: vec3<f32>;
 };
 
 // 1+-------+3
@@ -9,17 +8,22 @@ struct VertexOutput {
 //  |       |
 // 0+-------+2
 
-// 0    0, 0    Black
-// 1    0, 1    Green
-// 2    1, 0    Red
-// 3    1, 1    Yellow
+// Index    Coords
+// 0        0, 0
+// 1        0, 1
+// 2        1, 0
+// 3        1, 1
 
+// Foreground texture
 [[group(0), binding(0)]]
 var t_fore: texture_2d<f32>;
+// Background texture
 [[group(0), binding(1)]]
 var t_back: texture_2d<f32>;
+// ASCII chars texture
 [[group(0), binding(2)]]
 var t_text: texture_2d<f32>;
+// Font texture
 [[group(0), binding(3)]]
 var t_font: texture_2d<f32>;
 
@@ -39,13 +43,15 @@ fn main(
 ) -> VertexOutput {
     var out: VertexOutput;
 
+    //
+    // Convert a vertex index into a vertex
+    //
     let i = u32(in_vertex_index);
     let x = i & 2u;
     let y = i & 1u;
 
     var fx: f32 = f32(x);
     var fy: f32 = f32(y);
-    out.colour = vec3<f32>(fx, fy, 0.0);
 
     fx = (fx * 2.0) - 1.0;
     fy = (fy * 2.0) - 1.0;

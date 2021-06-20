@@ -2,8 +2,6 @@
 // ASCII renderer
 //
 
-#![allow(unused_variables)]
-
 use std::num::NonZeroU32;
 
 use bytemuck::cast_slice;
@@ -11,16 +9,15 @@ use bytemuck_derive::{Pod, Zeroable};
 use thiserror::Error;
 use wgpu::{
     util::{BufferInitDescriptor, DeviceExt},
-    AddressMode, BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout,
-    BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingResource, BindingType, BlendState,
-    Buffer, BufferBindingType, BufferUsage, Color, ColorTargetState, ColorWrite,
-    CommandEncoderDescriptor, Device, DeviceDescriptor, Extent3d, Features, FilterMode,
-    FragmentState, FrontFace, ImageCopyTexture, ImageDataLayout, Instance, Limits, LoadOp,
-    MultisampleState, Operations, Origin3d, PipelineLayoutDescriptor, PolygonMode, PowerPreference,
-    PresentMode, PrimitiveState, PrimitiveTopology, Queue, RenderPassColorAttachment,
-    RenderPassDescriptor, RenderPipeline, RenderPipelineDescriptor, RequestAdapterOptions,
-    RequestDeviceError, Sampler, SamplerDescriptor, ShaderFlags, ShaderModuleDescriptor,
-    ShaderSource, ShaderStage, Surface, SwapChain, SwapChainDescriptor, SwapChainError, Texture,
+    BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout, BindGroupLayoutDescriptor,
+    BindGroupLayoutEntry, BindingResource, BindingType, BlendState, BufferBindingType, BufferUsage,
+    Color, ColorTargetState, ColorWrite, CommandEncoderDescriptor, Device, DeviceDescriptor,
+    Extent3d, Features, FragmentState, FrontFace, ImageCopyTexture, ImageDataLayout, Instance,
+    Limits, LoadOp, MultisampleState, Operations, Origin3d, PipelineLayoutDescriptor, PolygonMode,
+    PowerPreference, PresentMode, PrimitiveState, PrimitiveTopology, Queue,
+    RenderPassColorAttachment, RenderPassDescriptor, RenderPipeline, RenderPipelineDescriptor,
+    RequestAdapterOptions, RequestDeviceError, ShaderFlags, ShaderModuleDescriptor, ShaderSource,
+    ShaderStage, Surface, SwapChain, SwapChainDescriptor, SwapChainError, Texture,
     TextureDescriptor, TextureDimension, TextureFormat, TextureSampleType, TextureUsage,
     TextureViewDescriptor, TextureViewDimension, VertexState,
 };
@@ -65,8 +62,6 @@ pub struct RenderState {
     texture_bind_group_layout: BindGroupLayout,
     texture_bind_group: BindGroup,
 
-    uniforms: RenderInfo,
-    uniform_buffer: Buffer,
     uniform_bind_group: BindGroup,
 
     font_char_size: (u32, u32),
@@ -147,20 +142,6 @@ impl RenderState {
         // Load the font data into the font texture
         font_texture.storage.copy_from_slice(font.data.as_slice());
         font_texture.update(&queue);
-
-        // Set up the sampler for all the textures (they will have the same
-        // access patterns).  The sample describes how pixels are fetched from a
-        // texture.
-        let texture_sampler = device.create_sampler(&SamplerDescriptor {
-            address_mode_u: AddressMode::ClampToEdge,
-            address_mode_v: AddressMode::ClampToEdge,
-            address_mode_w: AddressMode::ClampToEdge,
-            min_filter: FilterMode::Nearest,
-            mag_filter: FilterMode::Nearest,
-            mipmap_filter: FilterMode::Nearest,
-            label: Some("Texture Sampler"),
-            ..Default::default()
-        });
 
         // Now we load the shader in that contains both the vertex and fragment
         // shaders as a single WGSL file.
@@ -324,8 +305,6 @@ impl RenderState {
             texture_bind_group_layout,
             texture_bind_group,
 
-            uniforms,
-            uniform_buffer,
             uniform_bind_group,
 
             font_char_size: (font.width, font.height),
