@@ -20,6 +20,8 @@ var t_fore: texture_2d<f32>;
 var t_back: texture_2d<f32>;
 [[group(0), binding(2)]]
 var t_text: texture_2d<f32>;
+[[group(0), binding(3)]]
+var t_font: texture_2d<f32>;
 
 [[block]]
 struct Uniforms {
@@ -55,12 +57,37 @@ fn main(
 [[stage(fragment)]]
 
 fn main([[builtin(position)]] pos: vec4<f32>) -> [[location(0)]] vec4<f32> {
+    // Calculate the pixel coords
     let p = vec2<f32>(pos.x - 0.5, pos.y - 0.5);
+
+    // Calculate the char coords and the local coords inside a character block
     let cp = vec2<i32>(i32(p.x / f32(uniforms.font_width)), i32(p.y / f32(uniforms.font_height)));
+    let lp = vec2<i32>(i32(p.x) % i32(uniforms.font_width), i32(p.y) % i32(uniforms.font_height));
 
-    // let colour = vec4<f32>(x, y, 0.0, 1.0);
-    let colour = textureLoad(t_back, cp, 0);
+    // Look up the textures
+    let fore = textureLoad(t_fore, cp, 0);
+    let back = textureLoad(t_back, cp, 0);
+    let text = textureLoad(t_text, cp, 0);
 
-    return colour;
+    // Calculate the ASCII character code
+    let c = i32(text.x * 255.0);
+
+    // Calculate the character coords in the font texture.  We expect the font
+    // texture to be 16*16 characters.
+    let fx: i32 = c % 16;
+    let fy: i32 = c / 16;
+
+    // Calculate the pixel coords within the font texture
+    let lx = fx * i32(uniforms.font_width) + lp.x;
+    let ly = fy * i32(uniforms.font_height) + lp.y;
+
+    // Fetch the pixel in the font texture
+    let font_pix = textureLoad(t_font, vec2<i32>(lx, ly), 0);
+
+    if (font_pix.r < 0.5) {
+        return back;
+    } else {
+        return fore;
+    }
 }
 

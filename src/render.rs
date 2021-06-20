@@ -146,6 +146,7 @@ impl RenderState {
 
         // Load the font data into the font texture
         font_texture.storage.copy_from_slice(font.data.as_slice());
+        font_texture.update(&queue);
 
         // Set up the sampler for all the textures (they will have the same
         // access patterns).  The sample describes how pixels are fetched from a

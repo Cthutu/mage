@@ -6,6 +6,7 @@
 
 use futures::executor::block_on;
 use mage::*;
+use rand::Rng;
 
 fn main() -> RogueResult<()> {
     let rogue = RogueBuilder::new()
@@ -44,5 +45,17 @@ impl Game for HelloDemo {
                 0xffff00ffu32
             }
         }
+        present_input
+            .back_image
+            .iter_mut()
+            .for_each(|x| *x = rand::thread_rng().gen());
+        present_input
+            .fore_image
+            .iter_mut()
+            .for_each(|x| *x = rand::thread_rng().gen());
+        present_input
+            .text_image
+            .iter_mut()
+            .for_each(|x| *x = rand::thread_rng().gen::<u8>() as u32);
     }
 }

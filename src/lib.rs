@@ -219,7 +219,7 @@ pub async fn run(rogue: RogueBuilder, mut game: Box<dyn Game>) -> RogueResult<()
     present(game.as_ref(), &mut render);
 
     event_loop.run(move |event, _target, control_flow| {
-        *control_flow = ControlFlow::Wait;
+        *control_flow = ControlFlow::Poll;
 
         if input.update(&event) {
             //
@@ -235,21 +235,21 @@ pub async fn run(rogue: RogueBuilder, mut game: Box<dyn Game>) -> RogueResult<()
             if let Some(size) = input.window_resized() {
                 render.resize(size);
             }
-
-            match render.render() {
-                Ok(_) => {}
-                Err(SwapChainError::Lost) => render.resize(window.inner_size()),
-                Err(wgpu::SwapChainError::OutOfMemory) => *control_flow = ControlFlow::Exit,
-                Err(e) => eprintln!("{:?}", e),
-            };
-        } else {
-            if let TickResult::Stop = simulate(game.as_mut(), &render) {
-                *control_flow = ControlFlow::Exit
-            } else {
-                present(game.as_ref(), &mut render);
-                window.request_redraw();
-            }
         }
+
+        if let TickResult::Stop = simulate(game.as_mut(), &render) {
+            *control_flow = ControlFlow::Exit
+        } else {
+            present(game.as_ref(), &mut render);
+            window.request_redraw();
+        }
+
+        match render.render() {
+            Ok(_) => {}
+            Err(SwapChainError::Lost) => render.resize(window.inner_size()),
+            Err(wgpu::SwapChainError::OutOfMemory) => *control_flow = ControlFlow::Exit,
+            Err(e) => eprintln!("{:?}", e),
+        };
     });
 }
 
