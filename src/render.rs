@@ -32,7 +32,7 @@ use crate::RogueFontData;
 #[derive(Error, Debug)]
 pub enum RenderError {
     #[error("Appropriate graphics device was not found")]
-    BadAdapter,
+    AdapterNotFound,
 
     #[error(transparent)]
     BadDevice(#[from] RequestDeviceError),
@@ -90,7 +90,7 @@ impl RenderState {
                 compatible_surface: Some(&surface),
             })
             .await
-            .ok_or(RenderError::BadAdapter)?;
+            .ok_or(RenderError::AdapterNotFound)?;
 
         // Now we create the device and queue from the adapter.  A device is a
         // logical software construct around the physical device.  It serves as
@@ -322,7 +322,7 @@ impl RenderState {
     ) -> BindGroup {
         device.create_bind_group(&BindGroupDescriptor {
             label: Some("Texture bind group"),
-            layout: &texture_bind_group_layout,
+            layout: texture_bind_group_layout,
             entries: &[
                 BindGroupEntry {
                     binding: 0,

@@ -291,21 +291,19 @@ pub async fn run(rogue: RogueBuilder, mut game: Box<dyn Game>) -> RogueResult<()
                                 //
                                 if window.fullscreen().is_some() {
                                     window.set_fullscreen(None);
-                                } else {
-                                    window.current_monitor().map(|monitor| {
-                                        monitor.video_modes().next().map(|video_mode| {
-                                            if cfg!(any(target_os = "macos", unix)) {
-                                                window.set_fullscreen(Some(
-                                                    Fullscreen::Borderless(Some(monitor)),
-                                                ));
-                                            } else {
-                                                window.set_fullscreen(Some(Fullscreen::Exclusive(
-                                                    video_mode,
-                                                )));
-                                            }
-                                        });
-                                    });
-                                }
+                                } else if let Some(monitor) = window.current_monitor() {
+                                    if let Some(video_mode) = monitor.video_modes().next() {
+                                        if cfg!(any(target_os = "macos", unix)) {
+                                            window.set_fullscreen(Some(Fullscreen::Borderless(
+                                                Some(monitor),
+                                            )));
+                                        } else {
+                                            window.set_fullscreen(Some(Fullscreen::Exclusive(
+                                                video_mode,
+                                            )));
+                                        }
+                                    };
+                                };
                             }
                             _ => {}
                         }
@@ -362,7 +360,7 @@ fn simulate(game: &mut dyn Game, render: &RenderState, key_state: &KeyState) -> 
         dt: Duration::ZERO,
         width,
         height,
-        key: &key_state,
+        key: key_state,
         mouse: None,
     };
 

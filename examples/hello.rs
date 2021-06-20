@@ -5,7 +5,7 @@
 #![cfg_attr(windows, windows_subsystem = "windows")]
 
 use futures::executor::block_on;
-use mage::*;
+use md_mage::*;
 use rand::Rng;
 
 fn main() -> RogueResult<()> {
