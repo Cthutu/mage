@@ -26,6 +26,8 @@ use wgpu::{
 };
 use winit::{dpi::PhysicalSize, window::Window};
 
+use crate::RogueFontData;
+
 //
 // Rendering system errors that are passed into Results
 //
@@ -59,6 +61,7 @@ pub struct RenderState {
     fg_texture: RogueTexture,
     bg_texture: RogueTexture,
     chars_texture: RogueTexture,
+    font_texture: RogueTexture,
     texture_bind_group_layout: BindGroupLayout,
     texture_bind_group: BindGroup,
 
@@ -71,7 +74,7 @@ pub struct RenderState {
 }
 
 impl RenderState {
-    pub async fn new(window: &Window) -> RenderResult<Self> {
+    pub async fn new(window: &Window, font: &RogueFontData) -> RenderResult<Self> {
         let inner_size = window.inner_size();
 
         // An instance represents access to the WGPU API.  Here we decide which
@@ -132,14 +135,17 @@ impl RenderState {
         // * Background colours.  Each pixel represents the paper colour of a character on the screen.
         // * ASCII characters.  Each red channel of a pixel represents the ASCII code.
         // * Font texture.  A 16x16 character grid of the font texture.
-        let font_char_size = (16, 16);
         let size = (
-            inner_size.width / font_char_size.0,
-            inner_size.height / font_char_size.1,
+            inner_size.width / font.width,
+            inner_size.height / font.height,
         );
         let fg_texture = RogueTexture::new(&device, size);
         let bg_texture = RogueTexture::new(&device, size);
         let chars_texture = RogueTexture::new(&device, size);
+        let mut font_texture = RogueTexture::new(&device, (16 * font.width, 16 * font.height));
+
+        // Load the font data into the font texture
+        font_texture.storage.copy_from_slice(font.data.as_slice());
 
         // Set up the sampler for all the textures (they will have the same
         // access patterns).  The sample describes how pixels are fetched from a
@@ -200,6 +206,16 @@ impl RenderState {
                         },
                         count: None,
                     },
+                    BindGroupLayoutEntry {
+                        binding: 3,
+                        visibility: ShaderStage::FRAGMENT,
+                        ty: BindingType::Texture {
+                            multisampled: false,
+                            sample_type: TextureSampleType::Float { filterable: false },
+                            view_dimension: TextureViewDimension::D2,
+                        },
+                        count: None,
+                    },
                 ],
             });
         let texture_bind_group = Self::create_texture_bind_group(
@@ -208,12 +224,13 @@ impl RenderState {
             &fg_texture,
             &bg_texture,
             &chars_texture,
+            &font_texture,
         );
 
         // Next is to create the uniform buffer based on RenderInfo struct.
         let uniforms = RenderInfo {
-            font_width: font_char_size.0,
-            font_height: font_char_size.1,
+            font_width: font.width,
+            font_height: font.height,
             _padding: [0; 2],
         };
         let uniform_buffer = device.create_buffer_init(&BufferInitDescriptor {
@@ -302,6 +319,7 @@ impl RenderState {
             fg_texture,
             bg_texture,
             chars_texture,
+            font_texture,
             texture_bind_group_layout,
             texture_bind_group,
 
@@ -309,7 +327,7 @@ impl RenderState {
             uniform_buffer,
             uniform_bind_group,
 
-            font_char_size,
+            font_char_size: (font.width, font.height),
             size,
         })
     }
@@ -320,6 +338,7 @@ impl RenderState {
         fore_image: &RogueTexture,
         back_image: &RogueTexture,
         text_image: &RogueTexture,
+        font_image: &RogueTexture,
     ) -> BindGroup {
         device.create_bind_group(&BindGroupDescriptor {
             label: Some("Texture bind group"),
@@ -345,6 +364,14 @@ impl RenderState {
                     binding: 2,
                     resource: BindingResource::TextureView(
                         &text_image
+                            .texture
+                            .create_view(&TextureViewDescriptor::default()),
+                    ),
+                },
+                BindGroupEntry {
+                    binding: 3,
+                    resource: BindingResource::TextureView(
+                        &font_image
                             .texture
                             .create_view(&TextureViewDescriptor::default()),
                     ),
@@ -377,6 +404,7 @@ impl RenderState {
                 &self.fg_texture,
                 &self.bg_texture,
                 &self.chars_texture,
+                &self.font_texture,
             );
         }
     }

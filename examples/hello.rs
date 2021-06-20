@@ -29,7 +29,7 @@ impl HelloDemo {
 impl Game for HelloDemo {
     fn start(&mut self) {}
 
-    fn tick(&mut self, sim_input: SimInput) -> TickResult {
+    fn tick(&mut self, _sim_input: SimInput) -> TickResult {
         //println!("Size: {}, {}", sim_input.width, sim_input.height);
         TickResult::Continue
     }

@@ -2,8 +2,10 @@
 
 mod render;
 
+use bytemuck::cast_slice;
+use image::{EncodableLayout, GenericImageView, ImageFormat, RgbaImage};
 use render::*;
-use std::time::Duration;
+use std::{mem::replace, time::Duration};
 use thiserror::Error;
 use wgpu::SwapChainError;
 use winit::{
@@ -100,6 +102,9 @@ pub enum RogueError {
 
     #[error(transparent)]
     RenderError(#[from] render::RenderError),
+
+    #[error("Unable to read font data")]
+    BadFont,
 }
 
 pub type RogueResult<T> = Result<T, RogueError>;
@@ -111,10 +116,22 @@ pub type RogueResult<T> = Result<T, RogueError>;
 pub struct RogueBuilder {
     inner_size: (usize, usize),
     title: String,
+    font: RogueFont,
 }
 
 pub struct RogueGame {
     builder: RogueBuilder,
+}
+
+pub struct RogueFontData {
+    data: Vec<u32>,
+    width: u32,
+    height: u32,
+}
+
+enum RogueFont {
+    Default,
+    Custom(RogueFontData),
 }
 
 impl RogueBuilder {
@@ -122,6 +139,7 @@ impl RogueBuilder {
         RogueBuilder {
             inner_size: (100, 100),
             title: "md-rogue window".to_string(),
+            font: RogueFont::Default,
         }
     }
 
@@ -135,10 +153,16 @@ impl RogueBuilder {
         self
     }
 
-    pub fn build(&self) -> Self {
+    pub fn with_font(&mut self, font: RogueFontData) -> &mut Self {
+        self.font = RogueFont::Custom(font);
+        self
+    }
+
+    pub fn build(&mut self) -> Self {
         RogueBuilder {
             inner_size: self.inner_size,
             title: self.title.clone(),
+            font: replace(&mut self.font, RogueFont::Default),
         }
     }
 }
@@ -149,7 +173,32 @@ impl Default for RogueBuilder {
     }
 }
 
+pub fn load_font_image(data: &[u8], format: ImageFormat) -> RogueResult<RogueFontData> {
+    let font_image =
+        image::load_from_memory_with_format(data, format).map_err(|_| RogueError::BadFont)?;
+    let dimensions = font_image.dimensions();
+    let font_rgba = font_image.to_rgba8();
+    let font_data = font_rgba.as_bytes();
+    let data_u32: &[u32] = cast_slice(font_data);
+    let char_width = dimensions.0 / 16;
+    let char_height = dimensions.1 / 16;
+    if char_width == 0 || char_height == 0 {
+        return Err(RogueError::BadFont);
+    }
+
+    Ok(RogueFontData {
+        width: char_width,
+        height: char_height,
+        data: Vec::from(data_u32),
+    })
+}
+
 pub async fn run(rogue: RogueBuilder, mut game: Box<dyn Game>) -> RogueResult<()> {
+    let font_data = match rogue.font {
+        RogueFont::Default => load_font_image(include_bytes!("font1.png"), ImageFormat::Png)?,
+        RogueFont::Custom(font) => font,
+    };
+
     let event_loop = EventLoop::new();
     let window = WindowBuilder::new()
         .with_inner_size(PhysicalSize::new(
@@ -159,7 +208,7 @@ pub async fn run(rogue: RogueBuilder, mut game: Box<dyn Game>) -> RogueResult<()
         .with_title(rogue.title)
         .build(&event_loop)?;
     let mut input = WinitInputHelper::new();
-    let mut render = RenderState::new(&window).await?;
+    let mut render = RenderState::new(&window, &font_data).await?;
 
     game.start();
 
