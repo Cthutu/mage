@@ -1,7 +1,12 @@
+mod present;
 mod render;
 
+pub use image::ImageFormat;
+pub use present::*;
+
 use bytemuck::cast_slice;
-use image::{EncodableLayout, GenericImageView, ImageFormat};
+use futures::executor::block_on;
+use image::{EncodableLayout, GenericImageView};
 use render::*;
 use std::{cmp::max, mem::replace, time::Duration};
 use thiserror::Error;
@@ -66,14 +71,6 @@ pub struct SimInput<'a> {
     pub height: u32,
     pub key: &'a KeyState,
     pub mouse: Option<MouseState>,
-}
-
-pub struct PresentInput<'a> {
-    pub width: u32,
-    pub height: u32,
-    pub fore_image: &'a mut Vec<u32>,
-    pub back_image: &'a mut Vec<u32>,
-    pub text_image: &'a mut Vec<u32>,
 }
 
 pub fn new_colour(r: u8, g: u8, b: u8) -> u32 {
@@ -204,7 +201,11 @@ pub fn load_font_image(data: &[u8], format: ImageFormat) -> RogueResult<RogueFon
     })
 }
 
-pub async fn run(rogue: RogueBuilder, mut game: Box<dyn Game>) -> RogueResult<()> {
+pub fn run(rogue: RogueBuilder, game: Box<dyn Game>) -> RogueResult<()> {
+    block_on(run_internal(rogue, game))
+}
+
+pub async fn run_internal(rogue: RogueBuilder, mut game: Box<dyn Game>) -> RogueResult<()> {
     let font_data = match rogue.font {
         RogueFont::Default => load_font_image(include_bytes!("font1.png"), ImageFormat::Png)?,
         RogueFont::Custom(font) => font,
