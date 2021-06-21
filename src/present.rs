@@ -14,7 +14,25 @@ use std::cmp::min;
 //
 
 pub struct PresentInput<'a> {
-    pub image: Image<'a>,
+    pub width: u32,
+    pub height: u32,
+    pub fore_image: &'a mut Vec<u32>,
+    pub back_image: &'a mut Vec<u32>,
+    pub text_image: &'a mut Vec<u32>,
+}
+
+impl<'a> PresentInput<'a> {
+    pub fn blit(&mut self, p: Point, dst_width: u32, dst_height: u32, image: &Image) {
+        let blitops = BlitOps {
+            src: BlitRect::new(0, 0, image.width, image.height),
+            dst: BlitRect::new(0, 0, self.width, self.height),
+            src_blit: BlitRect::new(0, 0, image.width, image.height),
+            dst_blit: BlitRect::new(p.x, p.y, dst_width, dst_height),
+        };
+        blit(&image.fore_image, &mut self.fore_image, &blitops);
+        blit(&image.back_image, &mut self.back_image, &blitops);
+        blit(&image.text_image, &mut self.text_image, &blitops);
+    }
 }
 
 //
@@ -57,15 +75,26 @@ impl Char {
 // This represents a rectangular collection of RogueChars to render sprites and screens.
 //
 
-pub struct Image<'a> {
+pub struct Image {
     pub width: u32,
     pub height: u32,
-    pub fore_image: &'a mut Vec<u32>,
-    pub back_image: &'a mut Vec<u32>,
-    pub text_image: &'a mut Vec<u32>,
+    pub fore_image: Vec<u32>,
+    pub back_image: Vec<u32>,
+    pub text_image: Vec<u32>,
 }
 
-impl<'a> Image<'a> {
+impl Image {
+    pub fn new(width: u32, height: u32) -> Self {
+        let size = (width * height) as usize;
+        Image {
+            width,
+            height,
+            fore_image: vec![0; size],
+            back_image: vec![0; size],
+            text_image: vec![0; size],
+        }
+    }
+
     pub fn coords_to_index(&self, x: u32, y: u32) -> Option<usize> {
         if x < self.width && y < self.height {
             Some((y * self.width + x) as usize)
@@ -171,5 +200,92 @@ impl<'a> Image<'a> {
                 i += self.width as usize;
             });
         }
+    }
+}
+
+//
+// Blitting
+//
+
+struct BlitRect {
+    x: i32,
+    y: i32,
+    w: i32,
+    h: i32,
+}
+
+impl BlitRect {
+    fn new(x: i32, y: i32, width: u32, height: u32) -> Self {
+        BlitRect {
+            x,
+            y,
+            w: width as i32,
+            h: height as i32,
+        }
+    }
+}
+
+struct BlitOps {
+    src: BlitRect,      // Full size of the source rectangle (assume x, y is always 0, 0)
+    dst: BlitRect,      // Full size of the destination rectangle (assume x, y is always 0, 0)
+    src_blit: BlitRect, // Rectangle to blit from within src rectangle
+    dst_blit: BlitRect, // Rectangle to blit to within dst rectangle
+}
+
+fn blit<T>(src: &Vec<T>, dst: &mut Vec<T>, ops: &BlitOps)
+where
+    T: Copy,
+{
+    let mut sx = ops.src_blit.x;
+    let mut sy = ops.src_blit.y;
+    let mut sw = ops.src_blit.w;
+    let mut sh = ops.src_blit.h;
+    let mut dx = ops.dst_blit.x;
+    let mut dy = ops.dst_blit.y;
+    let mut dw = ops.dst_blit.w;
+    let mut dh = ops.dst_blit.h;
+
+    // If the source blit area is before the full area, we need to clip to the
+    // edge of the full area.
+    if sx < 0 {
+        sw += dx; // Shrink source
+        dw += dx; // Shrink destination
+        dx -= dx; // Shift the origin to the right
+        sx = 0;
+    }
+    // If the source blit area is over the right edge of the full area, we need
+    // to clip to the right edge of the full area.
+    if sx + sw > ops.src.w {
+        sw = ops.src.w - sx;
+    }
+    // Clip the source to the destination
+    let width = min(sw, dw);
+
+    // Now do the same for the Y axis
+    if sy < 0 {
+        sh += dy; // Shrink source
+        dh += dy; // Shrink destination
+        dy -= dy; // Shift the origin to the right
+        sy = 0;
+    }
+    if sy + sh > ops.src.h {
+        sh = ops.src.h - sy;
+    }
+    let height = min(sh, dh);
+
+    if width > 0 && height > 0 {
+        // Now we copy source into destination
+        let mut si = sy * ops.src.w + sx;
+        let mut di = dy * ops.dst.w + dx;
+
+        (0..height).for_each(|_| {
+            let src_slice = &src[si as usize..(si + width) as usize];
+            let dst_slice = &mut dst[di as usize..(di + width) as usize];
+
+            dst_slice.copy_from_slice(src_slice);
+
+            si += ops.src.w;
+            di += ops.dst.w;
+        });
     }
 }

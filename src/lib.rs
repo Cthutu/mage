@@ -1,6 +1,8 @@
+pub mod generation;
 mod present;
 mod render;
 
+pub use generation::*;
 pub use image::ImageFormat;
 pub use present::*;
 
@@ -373,13 +375,11 @@ fn present(game: &dyn Game, render: &mut RenderState) {
     let (fore_image, back_image, text_image) = render.images();
 
     let present_input = PresentInput {
-        image: Image {
-            width,
-            height,
-            fore_image,
-            back_image,
-            text_image,
-        },
+        width,
+        height,
+        fore_image,
+        back_image,
+        text_image,
     };
 
     game.present(present_input);
