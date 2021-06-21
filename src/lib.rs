@@ -373,11 +373,13 @@ fn present(game: &dyn Game, render: &mut RenderState) {
     let (fore_image, back_image, text_image) = render.images();
 
     let present_input = PresentInput {
-        width,
-        height,
-        fore_image,
-        back_image,
-        text_image,
+        image: Image {
+            width,
+            height,
+            fore_image,
+            back_image,
+            text_image,
+        },
     };
 
     game.present(present_input);

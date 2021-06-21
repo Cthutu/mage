@@ -8,7 +8,7 @@
 
 use std::cmp::min;
 
-pub struct PresentInput<'a> {
+pub struct Image<'a> {
     pub width: u32,
     pub height: u32,
     pub fore_image: &'a mut Vec<u32>,
@@ -16,7 +16,11 @@ pub struct PresentInput<'a> {
     pub text_image: &'a mut Vec<u32>,
 }
 
-impl<'a> PresentInput<'a> {
+pub struct PresentInput<'a> {
+    pub image: Image<'a>,
+}
+
+impl<'a> Image<'a> {
     pub fn coords_to_index(&self, x: u32, y: u32) -> Option<usize> {
         if x < self.width && y < self.height {
             Some((y * self.width + x) as usize)
