@@ -4,7 +4,6 @@
 
 #![cfg_attr(windows, windows_subsystem = "windows")]
 
-use futures::executor::block_on;
 use md_mage::*;
 use rand::Rng;
 
@@ -16,7 +15,7 @@ fn main() -> RogueResult<()> {
 
     let demo = Box::new(HelloDemo::new());
 
-    block_on(run(rogue, demo))
+    run(rogue, demo)
 }
 
 struct HelloDemo {}
