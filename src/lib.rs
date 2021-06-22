@@ -5,6 +5,7 @@ mod render;
 pub use generation::*;
 pub use image::ImageFormat;
 pub use present::*;
+pub use winit::event::VirtualKeyCode;
 
 use bytemuck::cast_slice;
 use futures::executor::block_on;
@@ -15,7 +16,7 @@ use thiserror::Error;
 use wgpu::SwapChainError;
 use winit::{
     dpi::PhysicalSize,
-    event::{ElementState, Event, KeyboardInput, VirtualKeyCode, WindowEvent},
+    event::{ElementState, Event, KeyboardInput, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
     window::{Fullscreen, WindowBuilder},
 };
@@ -50,9 +51,11 @@ impl KeyState {
         !self.alt && !self.ctrl && self.shift
     }
     pub fn key_pressed(&self, key: VirtualKeyCode) -> bool {
-        if let Some(vkey) = self.vkey {
-            if key == vkey {
-                return true;
+        if self.pressed {
+            if let Some(vkey) = self.vkey {
+                if key == vkey {
+                    return true;
+                }
             }
         }
         false
@@ -239,8 +242,6 @@ pub async fn run_internal(rogue: RogueBuilder, mut game: Box<dyn Game>) -> Rogue
 
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Poll;
-        key_state.pressed = false;
-        key_state.vkey = None;
 
         match event {
             //
@@ -337,6 +338,8 @@ pub async fn run_internal(rogue: RogueBuilder, mut game: Box<dyn Game>) -> Rogue
                 if let TickResult::Stop = simulate(game.as_mut(), &render, &key_state) {
                     *control_flow = ControlFlow::Exit;
                 }
+                key_state.pressed = false;
+                key_state.vkey = None;
                 window.request_redraw();
             }
             //
