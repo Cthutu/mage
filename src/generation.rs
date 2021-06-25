@@ -18,15 +18,18 @@ pub mod generation {
             .for_each(|(m, e)| {
                 *e = match m.elem {
                     Element::Empty => Colour::Black.into(),
-                    Element::Floor | Element::Door(_) => new_colour(128, 128, 128),
-                    Element::Wall => Colour::White.into(),
+                    Element::Floor | Element::Door(_) => new_colour(64, 64, 64),
+                    Element::Wall => Colour::Black.into(),
                 };
             });
         map.map
             .iter()
             .zip(image.back_image.iter_mut())
             .for_each(|(m, e)| {
-                *e = Colour::Black.into();
+                *e = match m.elem {
+                    Element::Wall => new_colour(64, 64, 0),
+                    _ => Colour::Black.into(),
+                };
             });
         map.map
             .iter()
